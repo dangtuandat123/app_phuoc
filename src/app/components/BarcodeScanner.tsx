@@ -21,7 +21,7 @@ export default function BarcodeScanner({
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
     useEffect(() => {
-        // Initialize ZXing Reader
+        // Initialize ZXing Reader with specific 1D formats for better accuracy
         const hints = new Map();
         const formats = [
             BarcodeFormat.EAN_13,
@@ -30,24 +30,28 @@ export default function BarcodeScanner({
             BarcodeFormat.CODE_39,
             BarcodeFormat.UPC_A,
             BarcodeFormat.UPC_E,
-            BarcodeFormat.ITF
+            BarcodeFormat.ITF,
+            BarcodeFormat.RSS_14,
+            BarcodeFormat.CODE_93
         ];
         hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-        hints.set(DecodeHintType.TRY_HARDER, true); // Enable Try Harder for better accuracy
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        hints.set(DecodeHintType.ASSUME_GS1, true);
 
         codeReaderRef.current = new BrowserMultiFormatReader(hints);
 
-        // Auto-start if isScanning is true
         if (isScanning) {
-            startScanning();
+            // Use a small delay to ensure DOM is ready and interaction loop is favorable
+            const timer = setTimeout(startScanning, 500);
+            return () => {
+                clearTimeout(timer);
+                stopScanning();
+            }
         }
 
-        return () => {
-            stopScanning();
-        };
+        return () => stopScanning();
     }, []);
 
-    // Watch for changes in isScanning prop to toggle camera
     useEffect(() => {
         if (isScanning) {
             startScanning();
@@ -60,34 +64,23 @@ export default function BarcodeScanner({
         if (!codeReaderRef.current || !videoRef.current) return;
 
         try {
-            setHasPermission(null);
-
-            // Get all video devices
             const videoInputDevices = await codeReaderRef.current.listVideoInputDevices();
             if (videoInputDevices.length === 0) {
                 throw new Error('Không tìm thấy camera');
             }
 
-            // Standard logic: try to find back camera
+            // Find back camera
             const backCamera = videoInputDevices.find(device =>
-                device.label.toLowerCase().includes('back') ||
-                device.label.toLowerCase().includes('rear') ||
-                device.label.toLowerCase().includes('0') // Sometimes first is back
-            ) || videoInputDevices[0];
+                /back|rear|sau|environment/i.test(device.label)
+            ) || videoInputDevices[videoInputDevices.length - 1]; // Usually last one is back
 
             await codeReaderRef.current.decodeFromVideoDevice(
                 backCamera.deviceId,
                 videoRef.current,
                 (result, error) => {
-                    if (result) {
+                    if (result && isScanning) {
                         const barcode = result.getText();
-                        console.log('Barcode detected:', barcode);
                         onScanSuccess(barcode);
-                        // Parent will set isScanning to false, triggering stopScanning via useEffect
-                    }
-                    if (error && !(error.name === 'NotFoundException')) {
-                        // Ignore NotFoundException as it happens every frame no barcode is found
-                        console.warn('Scan error:', error);
                     }
                 }
             );
@@ -97,7 +90,7 @@ export default function BarcodeScanner({
         } catch (err: any) {
             console.error('Start scan error:', err);
             setHasPermission(false);
-            onScanError?.('Không thể bật camera. Hãy kiểm tra quyền truy cập.');
+            onScanError?.('Lỗi camera: ' + err.message);
             setIsScanning(false);
         }
     };
@@ -116,62 +109,61 @@ export default function BarcodeScanner({
                 background: '#000',
                 borderRadius: '16px',
                 overflow: 'hidden',
-                position: 'relative'
+                position: 'relative',
+                border: '4px solid var(--border-color)'
             }}>
                 <video
                     ref={videoRef}
+                    playsInline // CRITICAL FOR MOBILE
+                    muted       // CRITICAL FOR AUTO-PLAY
+                    autoPlay    // CRITICAL FOR AUTO-START
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
 
-                {/* Visual Overlay */}
                 {isScanning && (
                     <div className="scanner-overlay" style={{
                         position: 'absolute',
                         inset: 0,
-                        border: '2px solid rgba(255,255,255,0.3)',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center'
+                        justifyContent: 'center',
+                        pointerEvents: 'none'
                     }}>
                         <div style={{
+                            width: '70%',
+                            height: '2px',
+                            background: 'var(--danger)',
+                            boxShadow: '0 0 10px var(--danger)',
+                            animation: 'scan-anim 2s infinite ease-in-out'
+                        }} />
+                        <div style={{
+                            position: 'absolute',
                             width: '80%',
-                            height: '40%',
-                            border: '2px solid var(--primary)',
-                            borderRadius: '8px',
-                            boxShadow: '0 0 0 1000px rgba(0,0,0,0.5)',
-                            position: 'relative'
-                        }}>
-                            {/* Animated Scan Line */}
-                            <div style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '2px',
-                                background: 'var(--primary)',
-                                animation: 'scan-anim 2s infinite linear'
-                            }} />
-                        </div>
+                            height: '50%',
+                            border: '2px solid white',
+                            borderRadius: '12px',
+                            boxShadow: '0 0 0 1000px rgba(0,0,0,0.5)'
+                        }} />
                     </div>
                 )}
             </div>
 
             <style jsx>{`
         @keyframes scan-anim {
-          0% { top: 0; }
-          100% { top: 100%; }
+          0%, 100% { transform: translateY(-80px); opacity: 0.5; }
+          50% { transform: translateY(80px); opacity: 1; }
         }
       `}</style>
 
             {hasPermission === false && (
-                <div className="permission-error" style={{ marginTop: '1rem', color: 'var(--danger)', textAlign: 'center' }}>
-                    <p>⚠️ Cần quyền truy cập Camera để quét mã.</p>
+                <div className="permission-error" style={{ padding: '1rem', background: '#fee2e2', borderRadius: '8px', marginTop: '1rem' }}>
+                    <p style={{ color: '#dc2626', fontWeight: 'bold' }}>⚠️ Không mở được Camera</p>
                     <button
                         onClick={startScanning}
                         className="btn-retry"
-                        style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
+                        style={{ marginTop: '1rem', width: '100%' }}
                     >
-                        Thử lại
+                        THỬ LẠI
                     </button>
                 </div>
             )}
