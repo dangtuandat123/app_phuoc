@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
     onScanSuccess: (barcode: string) => void;
@@ -16,154 +16,163 @@ export default function BarcodeScanner({
     isScanning,
     setIsScanning,
 }: BarcodeScannerProps) {
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+    const scannerRef = useRef<Html5Qrcode | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
     useEffect(() => {
-        // Initialize ZXing Reader with specific 1D formats for better accuracy
-        const hints = new Map();
-        const formats = [
-            BarcodeFormat.EAN_13,
-            BarcodeFormat.EAN_8,
-            BarcodeFormat.CODE_128,
-            BarcodeFormat.CODE_39,
-            BarcodeFormat.UPC_A,
-            BarcodeFormat.UPC_E,
-            BarcodeFormat.ITF,
-            BarcodeFormat.RSS_14,
-            BarcodeFormat.CODE_93
-        ];
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-        hints.set(DecodeHintType.TRY_HARDER, true);
-        hints.set(DecodeHintType.ASSUME_GS1, true);
-
-        codeReaderRef.current = new BrowserMultiFormatReader(hints);
-
+        // Initial start if isScanning is true
         if (isScanning) {
-            // Use a small delay to ensure DOM is ready and interaction loop is favorable
-            const timer = setTimeout(startScanning, 500);
+            const timer = setTimeout(startScanner, 500);
             return () => {
                 clearTimeout(timer);
-                stopScanning();
-            }
+                stopScanner();
+            };
         }
-
-        return () => stopScanning();
+        return () => stopScanner();
     }, []);
 
+    // Update scanner when isScanning changes
     useEffect(() => {
         if (isScanning) {
-            startScanning();
+            startScanner();
         } else {
-            stopScanning();
+            stopScanner();
         }
     }, [isScanning]);
 
-    const startScanning = async () => {
-        if (!codeReaderRef.current || !videoRef.current) return;
+    const startScanner = async () => {
+        // Check if already running to avoid "Scanner already running" error
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            return;
+        }
 
         try {
-            const videoInputDevices = await codeReaderRef.current.listVideoInputDevices();
-            if (videoInputDevices.length === 0) {
-                throw new Error('Không tìm thấy camera');
+            if (!scannerRef.current) {
+                scannerRef.current = new Html5Qrcode('barcode-reader');
             }
 
-            // Find back camera
-            const backCamera = videoInputDevices.find(device =>
-                /back|rear|sau|environment/i.test(device.label)
-            ) || videoInputDevices[videoInputDevices.length - 1]; // Usually last one is back
+            const config = {
+                fps: 20,
+                // Increased scan area for easier aiming
+                qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+                    const width = viewfinderWidth * 0.9;
+                    const height = Math.min(viewfinderHeight * 0.5, 250);
+                    return { width, height };
+                },
+                aspectRatio: 1.0,
+                // CRITICAL FOR ACCURACY: Enable specific 1D formats and experimental mode
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.EAN_8,
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.UPC_A,
+                    Html5QrcodeSupportedFormats.UPC_E,
+                    Html5QrcodeSupportedFormats.ITF
+                ],
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true // Use Android Native Barcode API if available (ULTRA FAST)
+                },
+                videoConstraints: {
+                    facingMode: "environment",
+                    // Request higher resolution for better label reading
+                    width: { min: 640, ideal: 1280 },
+                    height: { min: 480, ideal: 720 }
+                }
+            };
 
-            await codeReaderRef.current.decodeFromVideoDevice(
-                backCamera.deviceId,
-                videoRef.current,
-                (result, error) => {
-                    if (result && isScanning) {
-                        const barcode = result.getText();
-                        onScanSuccess(barcode);
-                    }
+            await scannerRef.current.start(
+                { facingMode: 'environment' },
+                config,
+                (decodedText) => {
+                    // Vibrate on success
+                    if (navigator.vibrate) navigator.vibrate(100);
+
+                    onScanSuccess(decodedText);
+                    stopScanner();
+                },
+                () => {
+                    // Quietly ignore scan attempts
                 }
             );
 
             setHasPermission(true);
             setIsScanning(true);
         } catch (err: any) {
-            console.error('Start scan error:', err);
-            setHasPermission(false);
-            onScanError?.('Lỗi camera: ' + err.message);
+            console.error('Html5Qrcode error:', err);
+            // If error is "permission denied" or others
+            if (err.toString().includes("permission") || err.toString().includes("NotAllowedError")) {
+                setHasPermission(false);
+                onScanError?.('Cần quyền Camera để quét mã.');
+            }
             setIsScanning(false);
         }
     };
 
-    const stopScanning = () => {
-        if (codeReaderRef.current) {
-            codeReaderRef.current.reset();
+    const stopScanner = async () => {
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            try {
+                await scannerRef.current.stop();
+                // Don't null it, just stop it
+            } catch (error) {
+                console.warn('Stop scanner fail:', error);
+            }
         }
     };
 
     return (
         <div className="scanner-container" style={{ width: '100%', position: 'relative' }}>
-            <div className="scanner-viewport" style={{
-                width: '100%',
-                aspectRatio: '4/3',
-                background: '#000',
-                borderRadius: '16px',
-                overflow: 'hidden',
-                position: 'relative',
-                border: '4px solid var(--border-color)'
-            }}>
-                <video
-                    ref={videoRef}
-                    playsInline // CRITICAL FOR MOBILE
-                    muted       // CRITICAL FOR AUTO-PLAY
-                    autoPlay    // CRITICAL FOR AUTO-START
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
+            <div
+                id="barcode-reader"
+                className={`scanner-viewport ${isScanning ? 'active' : ''}`}
+                style={{
+                    width: '100%',
+                    minHeight: '300px',
+                    background: '#000',
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    border: '4px solid var(--border-color)'
+                }}
+            />
 
-                {isScanning && (
-                    <div className="scanner-overlay" style={{
+            {isScanning && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '85%',
+                    height: '150px',
+                    border: '2px dashed var(--primary)',
+                    borderRadius: '8px',
+                    pointerEvents: 'none',
+                    zIndex: 10,
+                    boxShadow: '0 0 0 2000px rgba(0,0,0,0.4)'
+                }}>
+                    <div style={{
                         position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        pointerEvents: 'none'
-                    }}>
-                        <div style={{
-                            width: '70%',
-                            height: '2px',
-                            background: 'var(--danger)',
-                            boxShadow: '0 0 10px var(--danger)',
-                            animation: 'scan-anim 2s infinite ease-in-out'
-                        }} />
-                        <div style={{
-                            position: 'absolute',
-                            width: '80%',
-                            height: '50%',
-                            border: '2px solid white',
-                            borderRadius: '12px',
-                            boxShadow: '0 0 0 1000px rgba(0,0,0,0.5)'
-                        }} />
-                    </div>
-                )}
-            </div>
-
-            <style jsx>{`
-        @keyframes scan-anim {
-          0%, 100% { transform: translateY(-80px); opacity: 0.5; }
-          50% { transform: translateY(80px); opacity: 1; }
-        }
-      `}</style>
+                        top: '-30px',
+                        width: '100%',
+                        textAlign: 'center',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '1rem',
+                        textShadow: '1px 1px 2px black'
+                    }}>ĐƯA MÃ VẠCH VÀO KHUNG</div>
+                </div>
+            )}
 
             {hasPermission === false && (
-                <div className="permission-error" style={{ padding: '1rem', background: '#fee2e2', borderRadius: '8px', marginTop: '1rem' }}>
-                    <p style={{ color: '#dc2626', fontWeight: 'bold' }}>⚠️ Không mở được Camera</p>
-                    <button
-                        onClick={startScanning}
-                        className="btn-retry"
-                        style={{ marginTop: '1rem', width: '100%' }}
-                    >
-                        THỬ LẠI
+                <div className="error-card" style={{ marginTop: '1rem' }}>
+                    <p>⚠️ Chặn Camera. Hãy kiểm tra cài đặt trình duyệt.</p>
+                    <button className="btn-retry" onClick={() => window.location.reload()}>TẢI LẠI TRANG</button>
+                </div>
+            )}
+
+            {!isScanning && (
+                <div className="scanner-controls" style={{ marginTop: '1.5rem' }}>
+                    <button className="scan-button" onClick={() => setIsScanning(true)}>
+                        🔄 THỬ LẠI LẦN NỮA
                     </button>
                 </div>
             )}
