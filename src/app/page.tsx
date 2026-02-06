@@ -14,20 +14,23 @@ interface Product {
 type AppState = 'idle' | 'scanning' | 'loading' | 'found' | 'not-found' | 'error' | 'editing';
 
 export default function Home() {
-  const [appState, setAppState] = useState<AppState>('scanning'); // Default to scanning
-  const [isScanning, setIsScanning] = useState(true); // Default to true
+  // Always start with scanning state
+  const [appState, setAppState] = useState<AppState>('scanning');
+  const [isScanning, setIsScanning] = useState(true);
   const [product, setProduct] = useState<Product | null>(null);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Ensuring scan starts on mount (if permission allows)
+  // When app mounts, ensure scanning is active
   useEffect(() => {
     setIsScanning(true);
     setAppState('scanning');
   }, []);
 
   const handleScanSuccess = async (barcode: string) => {
+    // Stop scanning immediately on success
+    setIsScanning(false);
     setScannedBarcode(barcode);
     setAppState('loading');
 
@@ -49,13 +52,9 @@ export default function Home() {
   };
 
   const handleScanError = (errorMessage: string) => {
-    // Only show error if we really can't start the camera
-    console.warn("Scanner warning:", errorMessage);
-    // Don't stop scanning on minor errors, but if permission denied:
-    if (errorMessage.includes("quyền")) {
-      setError(errorMessage);
-      setAppState('error');
-    }
+    setError(errorMessage);
+    setAppState('error');
+    setIsScanning(false);
   };
 
   const handleAddProduct = async (newProduct: Product) => {
@@ -75,7 +74,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error(err);
-      setError('Không thể thêm sản phẩm.');
+      setError('Lỗi khi lưu sản phẩm.');
       setAppState('error');
     } finally {
       setIsSubmitting(false);
@@ -99,39 +98,32 @@ export default function Home() {
       }
     } catch (err) {
       console.error(err);
-      setError('Không thể cập nhật sản phẩm.');
+      setError('Lỗi khi cập nhật sản phẩm.');
       setAppState('error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleEditClick = () => setAppState('editing');
-
   const resetApp = () => {
     setProduct(null);
     setScannedBarcode('');
     setError('');
-    // Auto restart scanning
     setIsScanning(true);
     setAppState('scanning');
-  };
-
-  const cancelEdit = () => {
-    product ? setAppState('found') : resetApp();
   };
 
   return (
     <main className="app-container">
       <header className="app-header">
-        <h1>BARCODE SCANNER</h1>
+        <h1>BÁO GIÁ SẢN PHẨM</h1>
       </header>
 
       <div className="app-content">
         {appState === 'loading' && (
           <div className="loading-overlay">
             <div className="loading-spinner"></div>
-            <p>Đang tìm sản phẩm...</p>
+            <p>Đang tìm...</p>
           </div>
         )}
 
@@ -139,7 +131,7 @@ export default function Home() {
           <div className="error-card">
             <span className="error-icon">⚠️</span>
             <p>{error}</p>
-            <button className="btn-retry" onClick={resetApp}>Quét lại</button>
+            <button className="btn-retry" onClick={resetApp}>QUÉT LẠI</button>
           </div>
         )}
 
@@ -147,7 +139,7 @@ export default function Home() {
           <ProductCard
             product={product}
             onClose={resetApp}
-            onEdit={handleEditClick}
+            onEdit={() => setAppState('editing')}
           />
         )}
 
@@ -165,30 +157,23 @@ export default function Home() {
             barcode={product.barcode}
             initialData={{ name: product.name, price: product.price }}
             onSubmit={handleUpdateProduct}
-            onCancel={cancelEdit}
+            onCancel={() => setAppState('found')}
             isLoading={isSubmitting}
           />
         )}
 
-        {(appState === 'idle' || appState === 'scanning') && (
-          <div className="scanner-wrapper" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {(appState === 'scanning') && (
+          <div style={{ width: '100%' }}>
             <BarcodeScanner
               onScanSuccess={handleScanSuccess}
               onScanError={handleScanError}
               isScanning={isScanning}
-              setIsScanning={(scanning) => {
-                setIsScanning(scanning);
-                if (!scanning && appState === 'scanning') {
-                  // If scanner stopped itself (e.g. error), keep state sync?
-                  // Actually BarcodeScanner component handles button click to stop.
-                  // Here we just want it to be always valid.
-                }
-              }}
+              setIsScanning={setIsScanning}
             />
-            {/* Hide Manual Start Button if Scanning */}
+
             {!isScanning && (
-              <button className="scan-button" onClick={() => { setIsScanning(true); setAppState('scanning'); }}>
-                BẮT ĐẦU QUÉT
+              <button className="scan-button" style={{ marginTop: '2rem' }} onClick={resetApp}>
+                BẬT CAMERA QUÉT
               </button>
             )}
           </div>

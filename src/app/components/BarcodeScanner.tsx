@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 interface BarcodeScannerProps {
     onScanSuccess: (barcode: string) => void;
@@ -16,101 +16,162 @@ export default function BarcodeScanner({
     isScanning,
     setIsScanning,
 }: BarcodeScannerProps) {
-    const scannerRef = useRef<Html5Qrcode | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
-    // Core effect: Watch for isScanning changes to start/stop the camera automatically
     useEffect(() => {
-        if (isScanning && !scannerRef.current) {
-            // Delay a bit to ensure the DOM element #barcode-reader is ready
-            const timeoutId = setTimeout(startScanner, 300);
-            return () => clearTimeout(timeoutId);
-        } else if (!isScanning && scannerRef.current) {
-            stopScanner();
+        // Initialize ZXing Reader
+        const hints = new Map();
+        const formats = [
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.CODE_128,
+            BarcodeFormat.CODE_39,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+            BarcodeFormat.ITF
+        ];
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(DecodeHintType.TRY_HARDER, true); // Enable Try Harder for better accuracy
+
+        codeReaderRef.current = new BrowserMultiFormatReader(hints);
+
+        // Auto-start if isScanning is true
+        if (isScanning) {
+            startScanning();
+        }
+
+        return () => {
+            stopScanning();
+        };
+    }, []);
+
+    // Watch for changes in isScanning prop to toggle camera
+    useEffect(() => {
+        if (isScanning) {
+            startScanning();
+        } else {
+            stopScanning();
         }
     }, [isScanning]);
 
-    const startScanner = async () => {
-        // If scanner is already active, don't re-initialize
-        if (scannerRef.current) return;
+    const startScanning = async () => {
+        if (!codeReaderRef.current || !videoRef.current) return;
 
         try {
-            const html5QrCode = new Html5Qrcode('barcode-reader');
-            scannerRef.current = html5QrCode;
+            setHasPermission(null);
 
-            const config = {
-                fps: 20,
-                // Simplified qrbox for better compatibility across devices
-                qrbox: { width: 300, height: 200 },
-                aspectRatio: 1.0,
-            };
+            // Get all video devices
+            const videoInputDevices = await codeReaderRef.current.listVideoInputDevices();
+            if (videoInputDevices.length === 0) {
+                throw new Error('Không tìm thấy camera');
+            }
 
-            await html5QrCode.start(
-                { facingMode: 'environment' },
-                config,
-                (decodedText) => {
-                    // Success: Report to parent and stop
-                    onScanSuccess(decodedText);
-                    stopScanner();
-                },
-                (errorMessage) => {
-                    // Debug scan attempts if needed, but keep UI quiet
+            // Standard logic: try to find back camera
+            const backCamera = videoInputDevices.find(device =>
+                device.label.toLowerCase().includes('back') ||
+                device.label.toLowerCase().includes('rear') ||
+                device.label.toLowerCase().includes('0') // Sometimes first is back
+            ) || videoInputDevices[0];
+
+            await codeReaderRef.current.decodeFromVideoDevice(
+                backCamera.deviceId,
+                videoRef.current,
+                (result, error) => {
+                    if (result) {
+                        const barcode = result.getText();
+                        console.log('Barcode detected:', barcode);
+                        onScanSuccess(barcode);
+                        // Parent will set isScanning to false, triggering stopScanning via useEffect
+                    }
+                    if (error && !(error.name === 'NotFoundException')) {
+                        // Ignore NotFoundException as it happens every frame no barcode is found
+                        console.warn('Scan error:', error);
+                    }
                 }
             );
 
             setHasPermission(true);
             setIsScanning(true);
-        } catch (error: any) {
-            console.error('Error starting scanner:', error);
+        } catch (err: any) {
+            console.error('Start scan error:', err);
             setHasPermission(false);
-            onScanError?.('Không thể truy cập Camera. Vui lòng cấp quyền.');
+            onScanError?.('Không thể bật camera. Hãy kiểm tra quyền truy cập.');
             setIsScanning(false);
-            scannerRef.current = null;
         }
     };
 
-    const stopScanner = async () => {
-        if (scannerRef.current) {
-            try {
-                await scannerRef.current.stop();
-                scannerRef.current = null;
-            } catch (error) {
-                console.warn('Error stopping scanner:', error);
-            }
+    const stopScanning = () => {
+        if (codeReaderRef.current) {
+            codeReaderRef.current.reset();
         }
-        setIsScanning(false);
     };
-
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (scannerRef.current) {
-                scannerRef.current.stop().catch(() => { });
-            }
-        };
-    }, []);
 
     return (
-        <div className="scanner-container">
-            <div
-                id="barcode-reader"
-                className={`scanner-viewport ${isScanning ? 'active' : ''}`}
-            />
+        <div className="scanner-container" style={{ width: '100%', position: 'relative' }}>
+            <div className="scanner-viewport" style={{
+                width: '100%',
+                aspectRatio: '4/3',
+                background: '#000',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                position: 'relative'
+            }}>
+                <video
+                    ref={videoRef}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+
+                {/* Visual Overlay */}
+                {isScanning && (
+                    <div className="scanner-overlay" style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <div style={{
+                            width: '80%',
+                            height: '40%',
+                            border: '2px solid var(--primary)',
+                            borderRadius: '8px',
+                            boxShadow: '0 0 0 1000px rgba(0,0,0,0.5)',
+                            position: 'relative'
+                        }}>
+                            {/* Animated Scan Line */}
+                            <div style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: '2px',
+                                background: 'var(--primary)',
+                                animation: 'scan-anim 2s infinite linear'
+                            }} />
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <style jsx>{`
+        @keyframes scan-anim {
+          0% { top: 0; }
+          100% { top: 100%; }
+        }
+      `}</style>
 
             {hasPermission === false && (
-                <div className="permission-error">
-                    <p>⚠️ Lỗi truy cập Camera</p>
-                    <button className="btn-retry" onClick={startScanner} style={{ marginTop: '1rem' }}>
+                <div className="permission-error" style={{ marginTop: '1rem', color: 'var(--danger)', textAlign: 'center' }}>
+                    <p>⚠️ Cần quyền truy cập Camera để quét mã.</p>
+                    <button
+                        onClick={startScanning}
+                        className="btn-retry"
+                        style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
+                    >
                         Thử lại
-                    </button>
-                </div>
-            )}
-
-            {/* Manual Start Button ONLY if auto-start failed or stopped */}
-            {!isScanning && (
-                <div className="scanner-controls">
-                    <button className="scan-button" onClick={() => setIsScanning(true)}>
-                        📷 BẬT CAMERA QUÉT
                     </button>
                 </div>
             )}
