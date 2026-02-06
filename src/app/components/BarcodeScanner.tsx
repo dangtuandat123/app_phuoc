@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
     onScanSuccess: (barcode: string) => void;
@@ -18,6 +18,11 @@ export default function BarcodeScanner({
 }: BarcodeScannerProps) {
     const scannerRef = useRef<Html5Qrcode | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+    const [lastResult, setLastResult] = useState<string | null>(null);
+    const [count, setCount] = useState(0);
+
+    // Constants for accuracy
+    const REQUIRED_CONFIRMATIONS = 3; // Must read the same code 3 times to confirm
 
     useEffect(() => {
         return () => {
@@ -27,25 +32,61 @@ export default function BarcodeScanner({
         };
     }, []);
 
+    const handleDecodedText = (decodedText: string) => {
+        // If the scanner detects the same text as before
+        if (decodedText === lastResult) {
+            const newCount = count + 1;
+            setCount(newCount);
+
+            // If we've reached the threshold, finalize the scan
+            if (newCount >= REQUIRED_CONFIRMATIONS) {
+                onScanSuccess(decodedText);
+                stopScanner();
+                setCount(0);
+                setLastResult(null);
+            }
+        } else {
+            // Different code or first code detected, start/reset count
+            setLastResult(decodedText);
+            setCount(1);
+        }
+    };
+
     const startScanner = async () => {
         try {
             const html5QrCode = new Html5Qrcode('barcode-reader');
             scannerRef.current = html5QrCode;
 
+            // Optimize for accuracy: 
+            // 1. Limit formats if needed (keeping all for flexibility but common 1D optimized)
+            // 2. Higher resolution
+            // 3. Experimental features for 1D
+            const config = {
+                fps: 15, // 15 is a sweet spot for balance between speed and clarity
+                qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+                    // For 1D barcodes, a wider but shorter box is better
+                    const width = Math.min(viewfinderWidth * 0.8, 300);
+                    const height = Math.min(viewfinderHeight * 0.4, 150);
+                    return { width, height };
+                },
+                aspectRatio: 1.0,
+                // Experimental: some features that might help with 1D barcodes
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true,
+                },
+                videoConstraints: {
+                    facingMode: 'environment',
+                    width: { min: 640, ideal: 1280, max: 1920 },
+                    height: { min: 480, ideal: 720, max: 1080 },
+                }
+            };
+
             await html5QrCode.start(
-                { facingMode: 'environment' }, // Use back camera
-                {
-                    fps: 20, // Increased FPS to 20 for faster scanning
-                    qrbox: { width: 300, height: 250 }, // Larger scan area (300x250)
-                    aspectRatio: 1.0, // 1.0 is better for flexible orientation
-                },
-                (decodedText) => {
-                    // On successful scan
-                    onScanSuccess(decodedText);
-                    stopScanner();
-                },
+                { facingMode: 'environment' },
+                config,
+                handleDecodedText,
                 (errorMessage) => {
-                    // Ignore scan errors (no QR found)
+                    // Quietly ignore scan errors
                 }
             );
 
@@ -54,7 +95,7 @@ export default function BarcodeScanner({
         } catch (error) {
             console.error('Error starting scanner:', error);
             setHasPermission(false);
-            onScanError?.('Không thể truy cập camera. Vui lòng cấp quyền camera.');
+            onScanError?.('Không thể truy cập camera. Vui lòng cấp quyền.');
         }
     };
 
@@ -68,6 +109,8 @@ export default function BarcodeScanner({
             }
         }
         setIsScanning(false);
+        setCount(0);
+        setLastResult(null);
     };
 
     return (
@@ -77,23 +120,32 @@ export default function BarcodeScanner({
                 className={`scanner-viewport ${isScanning ? 'active' : ''}`}
             />
 
+            {isScanning && (
+                <div className="scan-status" style={{
+                    marginTop: '0.5rem',
+                    color: 'var(--primary)',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    height: '1.2rem'
+                }}>
+                    {count > 0 && lastResult && `Đang xác thực mã... (${count}/${REQUIRED_CONFIRMATIONS})`}
+                </div>
+            )}
+
             {hasPermission === false && (
                 <div className="permission-error">
-                    <p>⚠️ Không thể truy cập camera</p>
-                    <p>Vui lòng cấp quyền camera trong cài đặt trình duyệt</p>
+                    <p>⚠️ Lỗi truy cập Camera</p>
                 </div>
             )}
 
             <div className="scanner-controls">
                 {!isScanning ? (
                     <button className="scan-button" onClick={startScanner}>
-                        <span className="scan-icon">📷</span>
-                        Quét mã vạch
+                        📷 BẮT ĐẦU QUÉT
                     </button>
                 ) : (
                     <button className="stop-button" onClick={stopScanner}>
-                        <span className="stop-icon">✕</span>
-                        Dừng quét
+                        ✕ DỪNG QUÉT
                     </button>
                 )}
             </div>
