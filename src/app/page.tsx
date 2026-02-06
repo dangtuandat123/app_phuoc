@@ -1,65 +1,144 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import BarcodeScanner from './components/BarcodeScanner';
+import ProductCard from './components/ProductCard';
+import ProductForm from './components/ProductForm';
+
+interface Product {
+  barcode: string;
+  name: string;
+  price: number;
+}
+
+type AppState = 'idle' | 'scanning' | 'loading' | 'found' | 'not-found' | 'error';
 
 export default function Home() {
+  const [appState, setAppState] = useState<AppState>('idle');
+  const [isScanning, setIsScanning] = useState(false);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleScanSuccess = async (barcode: string) => {
+    setScannedBarcode(barcode);
+    setAppState('loading');
+
+    try {
+      const response = await fetch(`/api/product?barcode=${encodeURIComponent(barcode)}`);
+      const data = await response.json();
+
+      if (data.found) {
+        setProduct(data.product);
+        setAppState('found');
+      } else {
+        setAppState('not-found');
+      }
+    } catch (err) {
+      console.error('Error fetching product:', err);
+      setError('Không thể kết nối đến server. Vui lòng thử lại.');
+      setAppState('error');
+    }
+  };
+
+  const handleScanError = (errorMessage: string) => {
+    setError(errorMessage);
+    setAppState('error');
+  };
+
+  const handleAddProduct = async (newProduct: Product) => {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/product', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newProduct),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setProduct(newProduct);
+        setAppState('found');
+      } else {
+        setError('Không thể lưu sản phẩm. Vui lòng thử lại.');
+        setAppState('error');
+      }
+    } catch (err) {
+      console.error('Error adding product:', err);
+      setError('Không thể kết nối đến server. Vui lòng thử lại.');
+      setAppState('error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const resetApp = () => {
+    setAppState('idle');
+    setProduct(null);
+    setScannedBarcode('');
+    setError('');
+    setIsScanning(false);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="app-container">
+      <header className="app-header">
+        <h1>📦 Barcode Scanner</h1>
+        <p>Quét mã vạch để tra cứu sản phẩm</p>
+      </header>
+
+      <div className="app-content">
+        {appState === 'loading' && (
+          <div className="loading-overlay">
+            <div className="loading-spinner"></div>
+            <p>Đang tìm kiếm sản phẩm...</p>
+          </div>
+        )}
+
+        {appState === 'error' && (
+          <div className="error-card">
+            <span className="error-icon">⚠️</span>
+            <p>{error}</p>
+            <button className="btn-retry" onClick={resetApp}>
+              Thử lại
+            </button>
+          </div>
+        )}
+
+        {appState === 'found' && product && (
+          <ProductCard product={product} onClose={resetApp} />
+        )}
+
+        {appState === 'not-found' && (
+          <ProductForm
+            barcode={scannedBarcode}
+            onSubmit={handleAddProduct}
+            onCancel={resetApp}
+            isLoading={isSubmitting}
+          />
+        )}
+
+        {(appState === 'idle' || appState === 'scanning') && (
+          <BarcodeScanner
+            onScanSuccess={handleScanSuccess}
+            onScanError={handleScanError}
+            isScanning={isScanning}
+            setIsScanning={(scanning) => {
+              setIsScanning(scanning);
+              setAppState(scanning ? 'scanning' : 'idle');
+            }}
+          />
+        )}
+      </div>
+
+      <footer className="app-footer">
+        <p>Sử dụng camera để quét mã vạch sản phẩm</p>
+      </footer>
+    </main>
   );
 }
