@@ -31,10 +31,11 @@ export default function ProductForm({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (name && price) {
+            const finalPrice = Math.floor(parseFloat(price)); // Ensure integer
             onSubmit({
                 barcode,
                 name,
-                price: parseFloat(price),
+                price: finalPrice,
             });
         }
     };
@@ -43,8 +44,8 @@ export default function ProductForm({
 
     return (
         <div className="product-form-overlay">
-            <form className="product-form" onSubmit={handleSubmit}>
-                <h2>{isEditMode ? 'Cập nhật sản phẩm' : 'Thêm sản phẩm mới'}</h2>
+            <form className="product-form" onSubmit={handleSubmit} style={{ padding: '1.5rem' }}>
+                <h2>{isEditMode ? 'CẬP NHẬT THÔNG TIN' : 'THÊM SẢN PHẨM MỚI'}</h2>
 
                 <div className="form-group">
                     <label htmlFor="barcode">Mã vạch</label>
@@ -54,6 +55,7 @@ export default function ProductForm({
                         value={barcode}
                         readOnly
                         className="input-readonly"
+                        style={{ fontSize: '1.5rem', fontWeight: 'bold' }}
                     />
                 </div>
 
@@ -64,41 +66,46 @@ export default function ProductForm({
                         id="name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="Nhập tên sản phẩm"
+                        placeholder="Ví dụ: Nước ngọt Coca"
                         required
                         autoFocus
+                        style={{ fontSize: '1.25rem' }}
                     />
                 </div>
 
                 <div className="form-group">
-                    <label htmlFor="price">Giá (VNĐ)</label>
+                    <label htmlFor="price">Giá bán (VNĐ)</label>
                     <input
                         type="number"
                         id="price"
                         value={price}
                         onChange={(e) => setPrice(e.target.value)}
-                        placeholder="Nhập giá sản phẩm"
+                        placeholder="Nhập giá tiền"
                         min="0"
                         step="1"
                         required
+                        style={{ fontSize: '1.5rem', fontWeight: 'bold' }}
                     />
                 </div>
 
                 <div className="form-actions">
                     <button
+                        type="submit"
+                        className="btn-submit"
+                        disabled={isLoading || !name || !price}
+                        style={{ height: '60px', fontSize: '1.4rem' }}
+                    >
+                        {isLoading ? 'ĐANG LƯU...' : 'XÁC NHẬN LƯU'}
+                    </button>
+
+                    <button
                         type="button"
                         className="btn-cancel"
                         onClick={onCancel}
                         disabled={isLoading}
+                        style={{ height: '50px' }}
                     >
-                        Hủy
-                    </button>
-                    <button
-                        type="submit"
-                        className="btn-submit"
-                        disabled={isLoading || !name || !price}
-                    >
-                        {isLoading ? 'Đang lưu...' : (isEditMode ? 'Lưu cập nhật' : 'Lưu sản phẩm')}
+                        HỦY
                     </button>
                 </div>
             </form>

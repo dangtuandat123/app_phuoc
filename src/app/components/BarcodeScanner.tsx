@@ -18,11 +18,12 @@ export default function BarcodeScanner({
 }: BarcodeScannerProps) {
     const scannerRef = useRef<Html5Qrcode | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+    const [isInitializing, setIsInitializing] = useState(false);
 
     useEffect(() => {
         // Initial start if isScanning is true
         if (isScanning) {
-            const timer = setTimeout(startScanner, 500);
+            const timer = setTimeout(startScanner, 600); // Increased delay for stability
             return () => {
                 clearTimeout(timer);
                 stopScanner();
@@ -41,26 +42,37 @@ export default function BarcodeScanner({
     }, [isScanning]);
 
     const startScanner = async () => {
-        // Check if already running to avoid "Scanner already running" error
+        if (isInitializing) return;
+
+        // If scanner is already active, don't re-initialize
         if (scannerRef.current && scannerRef.current.isScanning) {
             return;
         }
 
+        setIsInitializing(true);
+
         try {
-            if (!scannerRef.current) {
-                scannerRef.current = new Html5Qrcode('barcode-reader');
+            // Always create a fresh instance to avoid state pollution
+            if (scannerRef.current) {
+                try {
+                    if (scannerRef.current.isScanning) await scannerRef.current.stop();
+                } catch (e) { }
             }
+
+            // Clear the container to be safe
+            const container = document.getElementById('barcode-reader');
+            if (container) container.innerHTML = "";
+
+            scannerRef.current = new Html5Qrcode('barcode-reader');
 
             const config = {
                 fps: 20,
-                // Increased scan area for easier aiming
                 qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
                     const width = viewfinderWidth * 0.9;
                     const height = Math.min(viewfinderHeight * 0.5, 250);
                     return { width, height };
                 },
                 aspectRatio: 1.0,
-                // CRITICAL FOR ACCURACY: Enable specific 1D formats and experimental mode
                 formatsToSupport: [
                     Html5QrcodeSupportedFormats.EAN_13,
                     Html5QrcodeSupportedFormats.EAN_8,
@@ -71,11 +83,10 @@ export default function BarcodeScanner({
                     Html5QrcodeSupportedFormats.ITF
                 ],
                 experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true // Use Android Native Barcode API if available (ULTRA FAST)
+                    useBarCodeDetectorIfSupported: true
                 },
                 videoConstraints: {
                     facingMode: "environment",
-                    // Request higher resolution for better label reading
                     width: { min: 640, ideal: 1280 },
                     height: { min: 480, ideal: 720 }
                 }
@@ -85,37 +96,40 @@ export default function BarcodeScanner({
                 { facingMode: 'environment' },
                 config,
                 (decodedText) => {
-                    // Vibrate on success
                     if (navigator.vibrate) navigator.vibrate(100);
-
                     onScanSuccess(decodedText);
                     stopScanner();
                 },
-                () => {
-                    // Quietly ignore scan attempts
-                }
+                () => { /* Quiet */ }
             );
 
             setHasPermission(true);
             setIsScanning(true);
         } catch (err: any) {
-            console.error('Html5Qrcode error:', err);
-            // If error is "permission denied" or others
+            console.error('Html5Qrcode start failed:', err);
             if (err.toString().includes("permission") || err.toString().includes("NotAllowedError")) {
                 setHasPermission(false);
-                onScanError?.('Cần quyền Camera để quét mã.');
+                onScanError?.('Vui lòng cho phép quyền Camera.');
             }
             setIsScanning(false);
+        } finally {
+            setIsInitializing(false);
         }
     };
 
     const stopScanner = async () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
+        if (scannerRef.current) {
             try {
-                await scannerRef.current.stop();
-                // Don't null it, just stop it
+                if (scannerRef.current.isScanning) {
+                    await scannerRef.current.stop();
+                }
             } catch (error) {
                 console.warn('Stop scanner fail:', error);
+            } finally {
+                scannerRef.current = null;
+                // Clean up DOM 
+                const container = document.getElementById('barcode-reader');
+                if (container) container.innerHTML = "";
             }
         }
     };
@@ -127,52 +141,68 @@ export default function BarcodeScanner({
                 className={`scanner-viewport ${isScanning ? 'active' : ''}`}
                 style={{
                     width: '100%',
-                    minHeight: '300px',
+                    minHeight: '320px',
                     background: '#000',
                     borderRadius: '16px',
                     overflow: 'hidden',
-                    border: '4px solid var(--border-color)'
+                    border: '4px solid var(--border-color)',
+                    position: 'relative'
                 }}
             />
 
-            {isScanning && (
+            {isInitializing && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    color: 'white',
+                    zIndex: 20,
+                    textAlign: 'center'
+                }}>
+                    <div className="loading-spinner" style={{ width: '40px', height: '40px', margin: '0 auto 10px' }}></div>
+                    <p>Khởi động Camera...</p>
+                </div>
+            )}
+
+            {isScanning && !isInitializing && (
                 <div style={{
                     position: 'absolute',
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
                     width: '85%',
-                    height: '150px',
+                    height: '160px',
                     border: '2px dashed var(--primary)',
-                    borderRadius: '8px',
+                    borderRadius: '12px',
                     pointerEvents: 'none',
                     zIndex: 10,
-                    boxShadow: '0 0 0 2000px rgba(0,0,0,0.4)'
+                    boxShadow: '0 0 0 2000px rgba(0,0,0,0.5)'
                 }}>
                     <div style={{
                         position: 'absolute',
-                        top: '-30px',
+                        top: '-40px',
                         width: '100%',
                         textAlign: 'center',
                         color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: '1rem',
-                        textShadow: '1px 1px 2px black'
-                    }}>ĐƯA MÃ VẠCH VÀO KHUNG</div>
+                        fontWeight: '900',
+                        fontSize: '1.2rem',
+                        textShadow: '2px 2px 4px black'
+                    }}>ĐƯA MÃ VÀO KHUNG</div>
                 </div>
             )}
 
             {hasPermission === false && (
-                <div className="error-card" style={{ marginTop: '1rem' }}>
-                    <p>⚠️ Chặn Camera. Hãy kiểm tra cài đặt trình duyệt.</p>
-                    <button className="btn-retry" onClick={() => window.location.reload()}>TẢI LẠI TRANG</button>
+                <div className="error-card" style={{ marginTop: '1.5rem' }}>
+                    <p>⚠️ Chưa cấp quyền Camera.</p>
+                    <button className="btn-retry" onClick={() => window.location.reload()}>BẤM ĐỂ TẢI LẠI TRANG</button>
                 </div>
             )}
 
-            {!isScanning && (
-                <div className="scanner-controls" style={{ marginTop: '1.5rem' }}>
+            {(!isScanning && !isInitializing) && (
+                <div className="scanner-controls" style={{ marginTop: '2rem' }}>
                     <button className="scan-button" onClick={() => setIsScanning(true)}>
-                        🔄 THỬ LẠI LẦN NỮA
+                        🔄 BẬT LẠI CAMERA
                     </button>
                 </div>
             )}
