@@ -22,11 +22,12 @@ export interface Product {
 export async function findProductByBarcode(barcode: string): Promise<Product | null> {
     const sheets = await getGoogleSheetsClient();
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+    const sheetName = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
 
     try {
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: 'Sheet1!A:C', // barcode, name, price
+            range: `${sheetName}!A:C`, // barcode, name, price
         });
 
         const rows = response.data.values;
@@ -56,11 +57,12 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
 export async function addProduct(product: Product): Promise<boolean> {
     const sheets = await getGoogleSheetsClient();
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+    const sheetName = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
 
     try {
         await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'Sheet1!A:C',
+            range: `${sheetName}!A:C`,
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [[product.barcode, product.name, product.price]],
