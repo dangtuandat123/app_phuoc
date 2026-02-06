@@ -11,7 +11,7 @@ interface Product {
   price: number;
 }
 
-type AppState = 'idle' | 'scanning' | 'loading' | 'found' | 'not-found' | 'error';
+type AppState = 'idle' | 'scanning' | 'loading' | 'found' | 'not-found' | 'error' | 'editing';
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>('idle');
@@ -77,12 +77,54 @@ export default function Home() {
     }
   };
 
+  const handleUpdateProduct = async (updatedProduct: Product) => {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/product', {
+        method: 'PUT', // Use PUT for updating
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedProduct),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setProduct(updatedProduct);
+        setAppState('found');
+      } else {
+        setError('Không thể cập nhật sản phẩm. Vui lòng thử lại.');
+        setAppState('error');
+      }
+    } catch (err) {
+      console.error('Error updating product:', err);
+      setError('Không thể kết nối đến server. Vui lòng thử lại.');
+      setAppState('error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditClick = () => {
+    setAppState('editing');
+  };
+
   const resetApp = () => {
     setAppState('idle');
     setProduct(null);
     setScannedBarcode('');
     setError('');
     setIsScanning(false);
+  };
+
+  const cancelEdit = () => {
+    if (product) {
+      setAppState('found'); // Back to found state if cancelling edit
+    } else {
+      resetApp();
+    }
   };
 
   return (
@@ -111,7 +153,11 @@ export default function Home() {
         )}
 
         {appState === 'found' && product && (
-          <ProductCard product={product} onClose={resetApp} />
+          <ProductCard
+            product={product}
+            onClose={resetApp}
+            onEdit={handleEditClick}
+          />
         )}
 
         {appState === 'not-found' && (
@@ -119,6 +165,16 @@ export default function Home() {
             barcode={scannedBarcode}
             onSubmit={handleAddProduct}
             onCancel={resetApp}
+            isLoading={isSubmitting}
+          />
+        )}
+
+        {appState === 'editing' && product && (
+          <ProductForm
+            barcode={product.barcode}
+            initialData={{ name: product.name, price: product.price }}
+            onSubmit={handleUpdateProduct}
+            onCancel={cancelEdit}
             isLoading={isSubmitting}
           />
         )}

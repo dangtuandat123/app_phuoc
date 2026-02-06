@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface ProductFormProps {
     barcode: string;
+    initialData?: { name: string; price: number }; // Optional initial data for edit mode
     onSubmit: (product: { barcode: string; name: string; price: number }) => void;
     onCancel: () => void;
     isLoading?: boolean;
@@ -11,12 +12,21 @@ interface ProductFormProps {
 
 export default function ProductForm({
     barcode,
+    initialData,
     onSubmit,
     onCancel,
     isLoading = false,
 }: ProductFormProps) {
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
+
+    // Setup initial data if editing
+    useEffect(() => {
+        if (initialData) {
+            setName(initialData.name);
+            setPrice(initialData.price.toString());
+        }
+    }, [initialData]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -29,10 +39,12 @@ export default function ProductForm({
         }
     };
 
+    const isEditMode = !!initialData;
+
     return (
         <div className="product-form-overlay">
             <form className="product-form" onSubmit={handleSubmit}>
-                <h2>Thêm sản phẩm mới</h2>
+                <h2>{isEditMode ? 'Cập nhật sản phẩm' : 'Thêm sản phẩm mới'}</h2>
 
                 <div className="form-group">
                     <label htmlFor="barcode">Mã vạch</label>
@@ -86,7 +98,7 @@ export default function ProductForm({
                         className="btn-submit"
                         disabled={isLoading || !name || !price}
                     >
-                        {isLoading ? 'Đang lưu...' : 'Lưu sản phẩm'}
+                        {isLoading ? 'Đang lưu...' : (isEditMode ? 'Lưu cập nhật' : 'Lưu sản phẩm')}
                     </button>
                 </div>
             </form>

@@ -75,3 +75,49 @@ export async function addProduct(product: Product): Promise<boolean> {
         throw error;
     }
 }
+
+export async function updateProduct(product: Product): Promise<boolean> {
+    const sheets = await getGoogleSheetsClient();
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+    const sheetName = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
+
+    try {
+        // 1. Find the row index first
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${sheetName}!A:C`,
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+            return false; // Not found
+        }
+
+        let rowIndex = -1;
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][0] === product.barcode) {
+                rowIndex = i + 1; // 1-based index
+                break;
+            }
+        }
+
+        if (rowIndex === -1) {
+            return false; // Product not found
+        }
+
+        // 2. Update the row
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!B${rowIndex}:C${rowIndex}`, // Update Name (Col B) and Price (Col C)
+            valueInputOption: 'USER_ENTERED',
+            requestBody: {
+                values: [[product.name, product.price]],
+            },
+        });
+
+        return true;
+    } catch (error) {
+        console.error('Error updating product:', error);
+        throw error;
+    }
+}
