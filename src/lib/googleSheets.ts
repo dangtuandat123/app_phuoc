@@ -25,6 +25,8 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
     const sheetName = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
 
     try {
+        console.log(`Searching for barcode: ${barcode} in sheet: ${sheetName}`);
+
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: `${sheetName}!A:C`, // barcode, name, price
@@ -32,21 +34,47 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
 
         const rows = response.data.values;
         if (!rows || rows.length === 0) {
+            console.log('No rows found in sheet');
             return null;
         }
 
-        // Skip header row, find matching barcode
-        for (let i = 1; i < rows.length; i++) {
+        const targetBarcode = barcode.trim();
+
+        // Scan ALL rows (starting from i=0) to handle sheets without headers
+        for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            if (row[0] === barcode) {
+
+            // Safety check: ensure row has data
+            if (!row || !row[0]) continue;
+
+            // Robust comparison: convert to string and trim
+            const rowBarcode = row[0].toString().trim();
+
+            if (rowBarcode === targetBarcode) {
+                // Handle text price like "58.000.000" or "58,000,000" or "$100"
+                const priceString = row[2] ? row[2].toString() : '0';
+                // Remove non-numeric characters except dot and comma (handled by parseFloat somewhat, but cleaning helps)
+                // Actually parseFloat stops at non-numeric. 
+                // Better to just try parseFloat directly first.
+                // Assuming simple number for now as per user screenshot.
+                let price = parseFloat(priceString);
+
+                if (isNaN(price)) {
+                    // Try to clean formatting if NaN
+                    const cleanPrice = priceString.replace(/[^0-9.-]+/g, '');
+                    price = parseFloat(cleanPrice) || 0;
+                }
+
+                console.log(`Found product at row ${i + 1}:`, row);
                 return {
-                    barcode: row[0],
-                    name: row[1],
-                    price: parseFloat(row[2]) || 0,
+                    barcode: rowBarcode,
+                    name: row[1] ? row[1].toString() : '',
+                    price: price,
                 };
             }
         }
 
+        console.log('Product not found in any row');
         return null;
     } catch (error) {
         console.error('Error finding product:', error);
@@ -93,9 +121,12 @@ export async function updateProduct(product: Product): Promise<boolean> {
             return false; // Not found
         }
 
+        const targetBarcode = product.barcode.trim();
         let rowIndex = -1;
-        for (let i = 1; i < rows.length; i++) {
-            if (rows[i][0] === product.barcode) {
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (row && row[0] && row[0].toString().trim() === targetBarcode) {
                 rowIndex = i + 1; // 1-based index
                 break;
             }
