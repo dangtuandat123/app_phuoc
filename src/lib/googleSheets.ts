@@ -93,7 +93,8 @@ export async function addProduct(product: Product): Promise<boolean> {
             range: `${sheetName}!A:C`,
             valueInputOption: 'USER_ENTERED',
             requestBody: {
-                values: [[product.barcode, product.name, product.price]],
+                // Prepend ' to ensure Google Sheets treats barcode as string (preserving leading zeros)
+                values: [[`'${product.barcode}`, product.name, product.price]],
             },
         });
 
