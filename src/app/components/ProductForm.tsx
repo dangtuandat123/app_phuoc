@@ -79,7 +79,7 @@ export default function ProductForm({
                         onChange={(e) => setPrice(e.target.value)}
                         placeholder="Nhập giá sản phẩm"
                         min="0"
-                        step="1000"
+                        step="1"
                         required
                     />
                 </div>
